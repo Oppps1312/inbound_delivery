@@ -1,0 +1,879 @@
+*&---------------------------------------------------------------------*
+*& Include          ZPG_MM_C030N_F01
+*&---------------------------------------------------------------------*
+*&---------------------------------------------------------------------*
+*& Form init
+*&---------------------------------------------------------------------*
+*& text
+*&---------------------------------------------------------------------*
+*& -->  p1        text
+*& <--  p2        text
+*&---------------------------------------------------------------------*
+FORM init .
+  gs_functxt-icon_id = icon_xls.
+  gs_functxt-quickinfo = TEXT-002.
+  gs_functxt-icon_text = TEXT-002.
+  sscrfields-functxt_01 = gs_functxt.
+
+  gs_functxt-icon_id = icon_xls.
+  gs_functxt-quickinfo = TEXT-003.
+  gs_functxt-icon_text = TEXT-003.
+  sscrfields-functxt_02 = gs_functxt.
+
+*  List box init
+  DATA: lt_list TYPE vrm_values.
+  DATA: ls_row TYPE vrm_value.
+
+  ls_row-key = '01'.
+  ls_row-text = 'Update INB'.
+  APPEND ls_row TO lt_list.
+
+  ls_row-key = '02'.
+  ls_row-text = 'Create INB'.
+  APPEND ls_row TO lt_list.
+
+  CALL FUNCTION 'VRM_SET_VALUES'
+    EXPORTING
+      id     = 'P_OPT'
+      values = lt_list
+    EXCEPTIONS
+      OTHERS = 1.
+
+ENDFORM.
+*&---------------------------------------------------------------------*
+*& Form download_template_xls
+*&---------------------------------------------------------------------*
+*& text
+*&---------------------------------------------------------------------*
+*& -->  p1        text
+*& <--  p2        text
+*&---------------------------------------------------------------------*
+FORM download_template_xls .
+  DATA : l_filename TYPE string,
+         l_path     TYPE string,
+         l_fullpath TYPE string,
+         l_filesize TYPE char10,
+         l_size     TYPE i.
+
+  DATA : ls_wwwdata_item TYPE wwwdatatab.
+  DATA : lt_mime  TYPE TABLE OF w3mime.
+  DATA : lv_objid TYPE wwwdata-objid.
+  DATA : lv_fname TYPE string.
+
+  CASE sscrfields-ucomm.
+    WHEN 'FC01'.
+      lv_objid  = 'ZMMC030N_UDT'.
+      lv_fname  = 'ZMMC030_UDT'.
+    WHEN 'FC02'.
+      lv_objid  = 'ZMMC030N_CRE'.
+      lv_fname  = 'ZMMC030_CRE'.
+    WHEN OTHERS.
+  ENDCASE.
+
+  SELECT SINGLE * FROM  wwwdata
+      INTO CORRESPONDING FIELDS OF ls_wwwdata_item
+     WHERE objid = lv_objid.
+  IF sy-subrc NE 0.
+*    MESSAGE s005 WITH TEXT-m15 DISPLAY LIKE 'E'.
+    LEAVE SCREEN.
+  ENDIF.
+
+  CALL FUNCTION 'WWWPARAMS_READ'
+    EXPORTING
+      relid = ls_wwwdata_item-relid
+      objid = ls_wwwdata_item-objid
+      name  = 'filesize'
+    IMPORTING
+      value = l_filesize.
+
+  CALL FUNCTION 'WWWDATA_IMPORT'
+    EXPORTING
+      key               = ls_wwwdata_item
+    TABLES
+      mime              = lt_mime
+    EXCEPTIONS
+      wrong_object_type = 1
+      import_error      = 2
+      OTHERS            = 3.
+
+  CALL METHOD cl_gui_frontend_services=>file_save_dialog
+    EXPORTING
+      default_extension = 'xlsx'
+      default_file_name = lv_fname
+    CHANGING
+      filename          = l_filename
+      path              = l_path
+      fullpath          = l_fullpath.
+
+  l_size = l_filesize.
+
+  IF l_fullpath IS NOT INITIAL.
+    CALL FUNCTION 'GUI_DOWNLOAD'
+      EXPORTING
+        filename     = l_fullpath
+        filetype     = 'BIN'
+        bin_filesize = l_size
+      TABLES
+        data_tab     = lt_mime.
+  ENDIF.
+
+ENDFORM.
+*&---------------------------------------------------------------------*
+*& Form frm_get_file
+*&---------------------------------------------------------------------*
+*& text
+*&---------------------------------------------------------------------*
+*&      <-- P_FILE
+*&---------------------------------------------------------------------*
+FORM frm_get_file  CHANGING p_p_file.
+  DATA: lt_files TYPE filetable,
+        ls_files LIKE LINE OF lt_files,
+        lw_rc    TYPE i.
+
+  CALL METHOD cl_gui_frontend_services=>file_open_dialog
+    EXPORTING
+      window_title            = 'Select Upload Excel File'
+      default_filename        = '*.xls'
+      multiselection          = ' '
+    CHANGING
+      file_table              = lt_files
+      rc                      = lw_rc
+    EXCEPTIONS
+      file_open_dialog_failed = 1
+      cntl_error              = 2
+      error_no_gui            = 3
+      not_supported_by_gui    = 4
+      OTHERS                  = 5.
+
+  LOOP AT lt_files INTO p_file.
+    EXIT.
+  ENDLOOP.
+ENDFORM.
+*&---------------------------------------------------------------------*
+*& Form main
+*&---------------------------------------------------------------------*
+*& text
+*&---------------------------------------------------------------------*
+*& -->  p1        text
+*& <--  p2        text
+*&---------------------------------------------------------------------*
+FORM main .
+  PERFORM main_init.
+
+  PERFORM catch_data.
+
+  PERFORM process_data.
+ENDFORM.
+*&---------------------------------------------------------------------*
+*& Form main_init
+*&---------------------------------------------------------------------*
+*& text
+*&---------------------------------------------------------------------*
+*& -->  p1        text
+*& <--  p2        text
+*&---------------------------------------------------------------------*
+FORM main_init .
+
+ENDFORM.
+*&---------------------------------------------------------------------*
+*& Form catch_data
+*&---------------------------------------------------------------------*
+*& text
+*&---------------------------------------------------------------------*
+*& -->  p1        text
+*& <--  p2        text
+*&---------------------------------------------------------------------*
+FORM catch_data .
+  TYPES:
+    BEGIN OF lty_excel,
+      col_001 TYPE char255,
+      col_002 TYPE char255,
+      col_003 TYPE char255,
+      col_004 TYPE char255,
+      col_005 TYPE char255,
+      col_006 TYPE char255,
+      col_007 TYPE char255,
+    END OF lty_excel.
+
+  DATA: lv_file      TYPE rlgrap-filename.
+  DATA:
+    lt_excel_data TYPE TABLE OF lty_excel,
+    lt_type       TYPE truxs_t_text_data.
+
+  lv_file = p_file.
+
+* Upload data from excel file
+  CALL FUNCTION 'TEXT_CONVERT_XLS_TO_SAP'
+    EXPORTING
+      i_line_header        = abap_true
+      i_tab_raw_data       = lt_type
+      i_filename           = lv_file
+    TABLES
+      i_tab_converted_data = lt_excel_data
+    EXCEPTIONS
+      conversion_failed    = 1
+      OTHERS               = 2.
+
+  IF sy-subrc <> 0.
+    MESSAGE ID 'E' TYPE 'S' NUMBER sy-msgno
+               WITH sy-msgv1 sy-msgv2 sy-msgv3 sy-msgv4 DISPLAY LIKE 'E'.
+
+    LEAVE LIST-PROCESSING.
+  ENDIF.
+
+  REFRESH: gt_res[].
+  IF p_opt = '1'. " Update
+    LOOP AT lt_excel_data INTO DATA(ls_excel).
+      APPEND INITIAL LINE TO gt_res ASSIGNING FIELD-SYMBOL(<fs_res>).
+      <fs_res>-vbeln   = ls_excel-col_001.
+      <fs_res>-posnr   = ls_excel-col_002.
+      IF ls_excel-col_003 IS NOT INITIAL.
+        CONDENSE ls_excel-col_003 NO-GAPS.
+        <fs_res>-lfdat+0(4)   = ls_excel-col_003+6(4).
+        <fs_res>-lfdat+4(2)   = ls_excel-col_003+3(2).
+        <fs_res>-lfdat+6(2)   = ls_excel-col_003+0(2).
+      ENDIF.
+      <fs_res>-lifex   = ls_excel-col_004.
+      <fs_res>-lfimg   = ls_excel-col_005.
+      IF ls_excel-col_006 IS NOT INITIAL.
+        CONDENSE ls_excel-col_006 NO-GAPS.
+        <fs_res>-tddat+0(4)   = ls_excel-col_006+6(4).
+        <fs_res>-tddat+4(2)   = ls_excel-col_006+3(2).
+        <fs_res>-tddat+6(2)   = ls_excel-col_006+0(2).
+      ENDIF.
+      <fs_res>-lichn   = ls_excel-col_007.
+      <fs_res>-vbeln   = |{ <fs_res>-vbeln ALPHA = IN }|.
+    ENDLOOP.
+  ELSE.
+    " Create - Clone from ZPG_MM_INBOUND_DELIVERY
+    LOOP AT lt_excel_data INTO ls_excel.
+      APPEND INITIAL LINE TO gt_res ASSIGNING <fs_res>.
+
+      CONDENSE ls_excel-col_001 NO-GAPS.
+      <fs_res>-ebeln   = ls_excel-col_001.
+      <fs_res>-ebelp   = ls_excel-col_002.
+      <fs_res>-lfdat+0(4)   = ls_excel-col_003+6(4).
+      <fs_res>-lfdat+4(2)   = ls_excel-col_003+3(2).
+      <fs_res>-lfdat+6(2)   = ls_excel-col_003+0(2).
+      <fs_res>-lifex   = ls_excel-col_004.
+      <fs_res>-lfimg   = ls_excel-col_005.
+      <fs_res>-tddat+0(4)   = ls_excel-col_006+6(4).
+      <fs_res>-tddat+4(2)   = ls_excel-col_006+3(2).
+      <fs_res>-tddat+6(2)   = ls_excel-col_006+0(2).
+      <fs_res>-lichn        = ls_excel-col_007.
+      <fs_res>-ebeln   = |{ <fs_res>-ebeln ALPHA = IN }|.
+    ENDLOOP.
+
+    IF gt_res[] IS NOT INITIAL.
+      SELECT ekpo~ebeln, ekpo~ebelp, ekpo~matnr,
+             ekpo~txz01, ekpo~ktmng, ekpo~meins
+        INTO TABLE @DATA(lt_item)
+        FROM ekpo
+        JOIN ekko ON ekpo~ebeln = ekko~ebeln
+         FOR ALL ENTRIES IN @gt_res
+       WHERE ekpo~ebeln = @gt_res-ebeln
+         AND ekpo~ebelp = @gt_res-ebelp.
+      IF sy-subrc IS INITIAL.
+        SELECT lips~vbeln, lips~posnr, vgbel,
+               vgpos, likp~wbstk, lifex
+          INTO TABLE @DATA(lt_inb)
+          FROM lips
+          JOIN likp ON likp~vbeln = lips~vbeln
+           FOR ALL ENTRIES IN @lt_item
+         WHERE vgbel = @lt_item-ebeln.
+      ENDIF.
+    ENDIF.
+
+    SORT lt_item BY ebeln ebelp.
+
+    LOOP AT gt_res ASSIGNING <fs_res>.
+      READ TABLE lt_item INTO DATA(ls_item)
+        WITH KEY ebeln = <fs_res>-ebeln
+                 ebelp = <fs_res>-ebelp BINARY SEARCH.
+      IF sy-subrc IS INITIAL.
+        <fs_res>-matnr = ls_item-matnr.
+        <fs_res>-txz01 = ls_item-txz01.
+        <fs_res>-vrkme = ls_item-meins.
+      ELSE.
+        <fs_res>-icon    = icon-error.
+        <fs_res>-message = 'PO/SA does not exist'.
+      ENDIF.
+    ENDLOOP.
+  ENDIF.
+
+ENDFORM.
+*&---------------------------------------------------------------------*
+*& Form process_data
+*&---------------------------------------------------------------------*
+*& text
+*&---------------------------------------------------------------------*
+*& -->  p1        text
+*& <--  p2        text
+*&---------------------------------------------------------------------*
+FORM process_data .
+  DATA: lt_lips TYPE gty_t_lips.
+  CHECK 1 = 2.
+  IF gt_res[] IS NOT INITIAL.
+    SELECT lips~vbeln, lips~posnr, lips~lfimg, lips~vrkme,
+           likp~lfdat,
+           likp~lifex,
+           likp~autlf
+      INTO CORRESPONDING FIELDS OF TABLE @lt_lips
+      FROM lips
+      JOIN likp
+        ON likp~vbeln = lips~vbeln
+       FOR ALL ENTRIES IN @gt_res
+     WHERE lips~vbeln = @gt_res-vbeln
+       AND lips~posnr = @gt_res-posnr.
+    SORT lt_lips BY vbeln posnr.
+  ENDIF.
+
+  LOOP AT gt_res ASSIGNING FIELD-SYMBOL(<fs_res>).
+    READ TABLE lt_lips INTO DATA(ls_lips)
+         WITH KEY vbeln = <fs_res>-vbeln
+                  posnr = <fs_res>-posnr
+                  BINARY SEARCH.
+    IF sy-subrc IS INITIAL.
+      <fs_res>-vrkme = ls_lips-vrkme.
+      IF <fs_res>-lfdat = ls_lips-lfdat AND
+         <fs_res>-lifex = ls_lips-lifex AND
+         <fs_res>-lfimg = ls_lips-lfimg.
+        <fs_res>-icon    = icon-warning.
+        <fs_res>-message = 'No data change'.
+      ENDIF.
+    ELSE.
+      <fs_res>-icon    = icon-error.
+      <fs_res>-message = 'Cannot find IB delivery'.
+    ENDIF.
+  ENDLOOP.
+
+ENDFORM.
+*&---------------------------------------------------------------------*
+*& Form disp
+*&---------------------------------------------------------------------*
+*& text
+*&---------------------------------------------------------------------*
+*& -->  p1        text
+*& <--  p2        text
+*&---------------------------------------------------------------------*
+FORM disp .
+  DATA: lt_events    TYPE slis_t_event.
+  DATA: ls_event     TYPE slis_alv_event.
+  DATA: is_layout    TYPE lvc_s_layo.
+
+  PERFORM build_fcat.
+
+  is_layout-zebra = 'X'.
+  is_layout-cwidth_opt = 'X'.
+  is_layout-box_fname  = 'SEL'.
+*  is_layout-edit = 'X'.
+*  is_layout-stylefname = 'CELLSTYLES'.
+*
+*  ls_event-name = slis_ev_data_changed.
+*  ls_event-form = 'DATA_CHANGED'.
+*  APPEND ls_event TO lt_events.
+
+  CALL FUNCTION 'REUSE_ALV_GRID_DISPLAY_LVC'
+    EXPORTING
+      i_callback_program       = sy-repid
+      i_callback_pf_status_set = 'FO_PF_STATUS'
+      i_callback_user_command  = 'FO_USER_COMMAND'
+      is_layout_lvc            = is_layout
+      it_fieldcat_lvc          = gt_fcat
+      i_save                   = 'U'
+      it_events                = lt_events
+    TABLES
+      t_outtab                 = gt_res
+    EXCEPTIONS
+      program_error            = 1
+      OTHERS                   = 2.
+  IF sy-subrc <> 0.
+    MESSAGE 'Can not display' TYPE 'E'.
+  ENDIF.
+
+ENDFORM.
+*&---------------------------------------------------------------------*
+*& Form build_fcat
+*&---------------------------------------------------------------------*
+*& text
+*&---------------------------------------------------------------------*
+*& -->  p1        text
+*& <--  p2        text
+*&---------------------------------------------------------------------*
+FORM build_fcat .
+  DATA:
+    lr_tabdescr TYPE REF TO cl_abap_structdescr,
+    lr_data     TYPE REF TO data,
+    lt_dfies    TYPE ddfields.
+
+  REFRESH gt_fcat[].
+
+  CREATE DATA lr_data LIKE LINE OF gt_res.
+  lr_tabdescr ?= cl_abap_structdescr=>describe_by_data_ref( lr_data ).
+  lt_dfies = cl_salv_data_descr=>read_structdescr( lr_tabdescr ).
+
+  PERFORM fill_line_fieldcat
+    USING:
+      01 'IB Delivery'      'VBELN'    ' ' 'X'  lt_dfies,
+      02 'Item'             'POSNR'    ' ' 'X'  lt_dfies,
+      03 'PO/SA'            'EBELN'    ' ' 'X'  lt_dfies,
+      04 'PO/SA Item'       'EBELP'    ' ' 'X'  lt_dfies,
+      05 'Delivery date'    'LFDAT'    ' ' 'X'  lt_dfies,
+      06 'External ID'      'LIFEX'    ' ' 'X'  lt_dfies,
+      07 'Quantity'         'LFIMG'    ' ' 'X'  lt_dfies,
+      08 'Material'         'MATNR'    ' ' 'X'  lt_dfies,
+      09 'Material desc'    'TXZ01'    ' ' 'X'  lt_dfies,
+      10 'Unit'             'VRKME'    'X' 'X'  lt_dfies,
+      11 'Cargo Ready Date' 'TDDAT'    ' ' 'X'  lt_dfies,
+      12 'Supplier Batch'   'LICHN'    ' ' 'X'  lt_dfies,
+      13 'Status'           'ICON'     ' ' 'X'  lt_dfies,
+      14 'Message'          'MESSAGE'  ' ' 'X'  lt_dfies.
+
+* Modify output
+  LOOP AT gt_fcat ASSIGNING FIELD-SYMBOL(<fs_fcat>).
+
+    CASE <fs_fcat>-fieldname.
+      WHEN 'MATNR' OR 'TXZ01'.
+        IF p_opt = '1'.
+          <fs_fcat>-no_out = 'X'.
+        ENDIF.
+      WHEN OTHERS.
+    ENDCASE.
+  ENDLOOP.
+ENDFORM.
+*&---------------------------------------------------------------------*
+*& Form FILL_LINE_FIELDCAT
+*&---------------------------------------------------------------------*
+FORM fill_line_fieldcat  USING VALUE(p_col)
+                               VALUE(p_text)
+                               VALUE(p_fldname)
+                               VALUE(p_noout)
+                               VALUE(p_nozero)
+                               pt_ddfields TYPE ddfields.
+
+  DATA : wa_fldcat TYPE lvc_s_fcat.
+
+  CLEAR wa_fldcat.
+
+  READ TABLE pt_ddfields INTO DATA(ls_ddfields)
+    WITH KEY fieldname = p_fldname.
+  IF sy-subrc IS INITIAL.
+    MOVE-CORRESPONDING ls_ddfields TO wa_fldcat.
+  ENDIF.
+  wa_fldcat-col_pos      = p_col.
+  wa_fldcat-coltext      = p_text.
+  wa_fldcat-seltext      = p_text.
+  wa_fldcat-reptext      = p_text.
+  wa_fldcat-fieldname    = p_fldname.
+*  wa_fldcat-do_sum       = p_dosum.
+  wa_fldcat-no_out       = p_noout.
+  wa_fldcat-no_zero      = p_nozero.
+  CASE p_fldname.
+    WHEN 'LFIMG'.
+      wa_fldcat-qfieldname = 'VRKME'.
+    WHEN OTHERS.
+  ENDCASE.
+  APPEND wa_fldcat TO gt_fcat[].
+
+ENDFORM.
+*&------------------------------------------------------------------*
+*&   FORM DATA_CHANGED
+*&------------------------------------------------------------------*
+FORM data_changed USING rr_data_changed TYPE REF TO cl_alv_changed_data_protocol.
+  DATA: lt_mod_cells TYPE lvc_t_modi.
+  lt_mod_cells = rr_data_changed->mt_mod_cells.
+  SORT lt_mod_cells BY row_id tabix.
+  DELETE ADJACENT DUPLICATES FROM lt_mod_cells COMPARING row_id tabix.
+  LOOP AT lt_mod_cells INTO DATA(ls_mod_cell).
+    rr_data_changed->modify_cell(
+      EXPORTING
+        i_row_id    =     ls_mod_cell-row_id
+        i_tabix     =     ls_mod_cell-tabix
+        i_fieldname =     'ACTION'
+        i_value     =     'U'
+    ).
+  ENDLOOP.
+ENDFORM.
+*&---------------------------------------------------------------------*
+*& Form EXECUTE
+*&---------------------------------------------------------------------*
+FORM execute CHANGING lt_res TYPE gty_t_res.
+  DATA: lt_lips TYPE gty_t_lips.
+
+  CHECK lt_res IS NOT INITIAL.
+  SORT  lt_res BY vbeln posnr.
+
+  SELECT likp~vbeln, lips~posnr, lips~lfimg, lips~vrkme, lips~vgbel, lips~vgpos,
+         likp~lfdat,
+         likp~tddat,
+         likp~lifex,
+         likp~autlf
+    INTO CORRESPONDING FIELDS OF TABLE @lt_lips
+    FROM likp
+    LEFT JOIN lips
+      ON likp~vbeln = lips~vbeln
+     FOR ALL ENTRIES IN @lt_res
+   WHERE likp~vbeln = @lt_res-vbeln.
+  "AND lips~posnr = @lt_res-posnr.
+
+*  SORT lt_lips BY vbeln posnr.
+  SORT lt_lips BY vbeln.
+  DELETE ADJACENT DUPLICATES FROM lt_lips COMPARING vbeln.
+
+  " Process update
+  DATA: vbkok_wa     TYPE vbkok,
+        vbpok_wa     TYPE vbpok,
+        vbpok_tb     TYPE TABLE OF vbpok,
+        lv_error_any TYPE xfeld,
+        lt_prott     TYPE tab_prott,
+        lv_message   TYPE string,
+        lv_update    TYPE flag.
+
+  BREAK tuantv22.
+
+  LOOP AT lt_res ASSIGNING FIELD-SYMBOL(<fs_res>).
+    CLEAR: vbpok_wa.
+    " Validate
+    READ TABLE lt_lips INTO DATA(ls_lips)
+         WITH KEY vbeln = <fs_res>-vbeln BINARY SEARCH.
+*                  posnr = <fs_res>-posnr
+    IF sy-subrc IS INITIAL.
+      vbkok_wa-vbeln_vl = <fs_res>-vbeln.
+      IF <fs_res>-lfdat IS NOT INITIAL AND
+         <fs_res>-lfdat <> ls_lips-lfdat.
+        vbkok_wa-lfdat = <fs_res>-lfdat.
+        vbkok_wa-kzlfd = 'X'.
+        lv_update = 'X'.
+      ENDIF.
+
+      IF <fs_res>-tddat IS NOT INITIAL AND
+         <fs_res>-tddat <> ls_lips-tddat.
+        vbkok_wa-tddat   = <fs_res>-tddat.
+        vbkok_wa-kztddat = 'X'.
+        lv_update = 'X'.
+      ENDIF.
+
+      IF <fs_res>-lifex IS NOT INITIAL AND
+         <fs_res>-lifex <> ls_lips-lifex.
+        vbkok_wa-lifex = <fs_res>-lifex.
+        lv_update = 'X'.
+      ENDIF.
+
+
+
+      IF <fs_res>-lfimg > 0 .
+"        AND
+"        <fs_res>-lfimg <> ls_lips-lfimg.
+        vbpok_wa-vbeln_vl = ls_lips-vbeln.
+        vbpok_wa-posnr_vl = ls_lips-posnr.
+        vbpok_wa-lfimg    = <fs_res>-lfimg.
+        vbpok_wa-lianp    = 'X'.
+        IF <fs_res>-lichn IS NOT INITIAL.
+          vbpok_wa-lichn = <fs_res>-lichn.
+          vbpok_wa-spe_inb_itm_upd = 'X'.
+        ENDIF.
+*        vbpok_wa-akmng    = 'A'.
+        APPEND vbpok_wa TO vbpok_tb.
+        lv_update = 'X'.
+      ENDIF.
+    ENDIF.
+
+    AT END OF vbeln.
+      IF lv_update = 'X'.
+        CALL FUNCTION 'WS_DELIVERY_UPDATE'
+          EXPORTING
+            vbkok_wa       = vbkok_wa
+            delivery       = <fs_res>-vbeln
+            synchron       = 'X'
+            commit         = ' '
+          IMPORTING
+            ef_error_any_0 = lv_error_any
+          TABLES
+            vbpok_tab      = vbpok_tb
+            prot           = lt_prott
+          EXCEPTIONS
+            error_message  = 1
+            OTHERS         = 2.
+
+        IF lv_error_any IS NOT INITIAL OR
+           sy-subrc IS NOT INITIAL.
+          CALL FUNCTION 'BAPI_TRANSACTION_ROLLBACK'.
+          READ TABLE lt_prott INTO DATA(ls_log) INDEX 1.
+          IF sy-subrc IS NOT INITIAL.
+            MESSAGE ID sy-msgid TYPE sy-msgty NUMBER sy-msgno
+               WITH sy-msgv1 sy-msgv2 sy-msgv3 sy-msgv4
+               INTO lv_message.
+          ELSE.
+            MESSAGE ID ls_log-msgid TYPE ls_log-msgty NUMBER ls_log-msgno
+               WITH ls_log-msgv1 ls_log-msgv2 ls_log-msgv3 ls_log-msgv4
+               INTO lv_message.
+          ENDIF.
+          CALL FUNCTION 'DEQUEUE_ALL'.
+        ELSE.
+          CALL FUNCTION 'BAPI_TRANSACTION_COMMIT'
+            EXPORTING
+              wait = 'X'.
+        ENDIF.
+      ENDIF.
+
+      " Display log update
+      READ TABLE gt_res ASSIGNING FIELD-SYMBOL(<fs_repts>)
+           WITH KEY vbeln = <fs_res>-vbeln BINARY SEARCH.
+      IF sy-subrc IS INITIAL.
+        IF lv_message IS NOT INITIAL.
+          <fs_repts>-message = lv_message.
+          <fs_repts>-icon    = icon-error.
+        ELSE.
+          <fs_repts>-message = lv_message.
+          <fs_repts>-icon    = icon-success.
+        ENDIF.
+      ENDIF.
+      " Clear data for process
+      REFRESH: lt_prott[], vbpok_tb[].
+      CLEAR: lv_error_any, vbkok_wa, lv_message, lv_update.
+    ENDAT.
+  ENDLOOP.
+ENDFORM.
+*&------------------------------------------------------------------*
+*&   FORM FO_PF_STATUS
+*&------------------------------------------------------------------*
+FORM fo_pf_status USING  extab TYPE slis_t_extab.
+  SET PF-STATUS 'ZSTANDARD'." EXCLUDING EXTAB.
+ENDFORM.
+*&------------------------------------------------------------------*
+*&   FORM FO_USER_COMMAND
+*&------------------------------------------------------------------*
+FORM fo_user_command USING v_ucomm     TYPE sy-ucomm
+                           rs_selfield TYPE slis_selfield.
+
+  DATA: ls_stable TYPE lvc_s_stbl.
+  DATA: ob_ref    TYPE REF TO cl_gui_alv_grid.
+  DATA: lt_t_row  TYPE lvc_t_row.
+  DATA: lt_moce   TYPE lvc_t_moce.
+  DATA: lv_valid  TYPE char1.
+  DATA: lv_ok     TYPE char1.
+  DATA: lt_res    TYPE gty_t_res.
+
+  CALL FUNCTION 'GET_GLOBALS_FROM_SLVC_FULLSCR'
+    IMPORTING
+      e_grid = ob_ref.
+  CALL METHOD ob_ref->check_changed_data(
+    IMPORTING
+      e_valid = lv_valid ).
+
+  CALL METHOD ob_ref->get_selected_rows(
+    IMPORTING
+      et_index_rows = lt_t_row ).
+
+  CASE v_ucomm.
+    WHEN 'EXEC'.
+      IF p_opt = '1'. " Update
+        PERFORM execute CHANGING gt_res.
+      ELSE. " Create
+        PERFORM inb_create USING lt_t_row.
+      ENDIF.
+    WHEN OTHERS.
+  ENDCASE.
+
+  ls_stable-row = 'X'.
+  ls_stable-col = 'X'.
+  CALL METHOD ob_ref->refresh_table_display
+    EXPORTING
+      is_stable      = ls_stable
+      i_soft_refresh = ''.
+ENDFORM.
+*&---------------------------------------------------------------------*
+*& Form GET_VBSK
+*&---------------------------------------------------------------------*
+FORM get_vbsk  CHANGING cs_vbsk     TYPE vbsk
+                        cv_err      TYPE flag
+                        ct_return   TYPE bapirettab.
+  DATA:
+    ls_tvsa   TYPE tvsa,
+    lf_nrnr   TYPE nrnr,
+    lf_msg    TYPE bapi_msg,
+    ls_return TYPE bapiret2.
+
+  CHECK cv_err IS INITIAL.
+
+  cs_vbsk-mandt = sy-mandt.
+  cs_vbsk-ernam = sy-uname.
+  cs_vbsk-erdat = sy-datum.
+  cs_vbsk-uzeit = sy-uzeit.
+  cs_vbsk-smart = 'L'.
+
+  SELECT SINGLE * FROM tvsa INTO ls_tvsa
+    WHERE smart = cs_vbsk-smart.
+  IF sy-subrc NE 0.
+    cv_err = 'X'.
+*   No number range interval for delivery group type &1
+    MESSAGE e351(arbcig_message) WITH cs_vbsk-smart INTO lf_msg.
+
+    CLEAR ls_return.
+    MOVE 'E'               TO ls_return-type.
+    MOVE 'ARBCIG_MESSAGE'  TO ls_return-id.
+    MOVE '351'             TO ls_return-number.
+    MOVE lf_msg            TO ls_return-message.
+    APPEND ls_return TO ct_return.
+  ENDIF.
+
+  lf_nrnr = ls_tvsa-numki.
+  CALL FUNCTION 'NUMBER_GET_NEXT'
+    EXPORTING
+      nr_range_nr = lf_nrnr
+      object      = 'RV_SAMMG'
+    IMPORTING
+      number      = cs_vbsk-sammg
+    EXCEPTIONS
+      OTHERS      = 1.
+  IF sy-subrc NE 0.
+    cv_err = 'X'.
+**   No number in delivery group number range interval &1
+    MESSAGE e352(arbcig_message) WITH lf_nrnr INTO lf_msg.
+    CLEAR ls_return.
+    MOVE 'E'               TO ls_return-type.
+    MOVE 'ARBCIG_MESSAGE'  TO ls_return-id.
+    MOVE '352'             TO ls_return-number.
+    MOVE lf_msg            TO ls_return-message.
+    APPEND ls_return TO ct_return.
+  ENDIF.
+ENDFORM.
+*&---------------------------------------------------------------------*
+*& Form INB_CREATE
+*&---------------------------------------------------------------------*
+FORM inb_create CHANGING lpt_row TYPE lvc_t_row.
+* Reference BBP_INB_DELIVERY_CREATE
+
+  DATA: lv_err   TYPE flag,
+        lv_vgbel TYPE vgbel,
+        lv_rfpos TYPE rfpos_vl.
+
+  DATA: xkomdlgn TYPE TABLE OF komdlgn,
+        xvbfs    TYPE TABLE OF vbfs,
+        xvbls    TYPE TABLE OF vbls,
+        xlips    TYPE TABLE OF lips,
+        xlikp    TYPE likp,
+        xvbsk    LIKE vbsk.
+  DATA  lt_prop     LIKE wuebs OCCURS 100 WITH HEADER LINE.
+
+  DATA: lt_return   TYPE bapirettab.
+  DATA: lt_res      TYPE gty_t_res.
+
+  IF lpt_row IS INITIAL.
+    MESSAGE 'Please select row for Create INB' TYPE 'S' DISPLAY LIKE 'E'.
+    LEAVE LIST-PROCESSING.
+  ELSE.
+    LOOP AT lpt_row INTO DATA(ls_row).
+      READ TABLE gt_res INTO DATA(ls_res) INDEX ls_row-index.
+      APPEND ls_res TO lt_res.
+    ENDLOOP.
+  ENDIF.
+
+  BREAK tuantv22.
+  SELECT ekpo~ebeln, ekpo~ebelp, ekpo~matnr,
+         ekpo~txz01, ekpo~ktmng, ekpo~meins
+    INTO TABLE @DATA(lt_item)
+    FROM ekpo
+    JOIN ekko ON ekpo~ebeln = ekko~ebeln
+     FOR ALL ENTRIES IN @lt_res
+   WHERE ekpo~ebeln = @lt_res-ebeln
+     AND ekpo~ebelp = @lt_res-ebelp.
+
+  SORT lt_item BY ebeln ebelp.
+
+  LOOP AT lpt_row INTO ls_row.
+    READ TABLE gt_res ASSIGNING FIELD-SYMBOL(<fs_res>) INDEX ls_row-index.
+    CHECK sy-subrc IS INITIAL.
+    READ TABLE lt_item TRANSPORTING NO FIELDS
+      WITH KEY ebeln = <fs_res>-ebeln
+               ebelp = <fs_res>-ebelp BINARY SEARCH.
+    IF sy-subrc IS NOT INITIAL.
+      lv_err = 'X'.
+      <fs_res>-icon    = icon-error.
+      <fs_res>-message = 'PO/SA doesn`t exist'.
+      CONTINUE.
+    ENDIF.
+
+    APPEND INITIAL LINE TO xkomdlgn ASSIGNING FIELD-SYMBOL(<fs_xkomdlgn>).
+*    ADD 10 TO lv_rfpos.
+    <fs_xkomdlgn>-rfpos = lv_rfpos.
+    <fs_xkomdlgn>-lifex = <fs_res>-lifex.
+    <fs_xkomdlgn>-verur = <fs_res>-lifex.
+    <fs_xkomdlgn>-lfdat = <fs_res>-lfdat.
+    <fs_xkomdlgn>-tddat = <fs_res>-tddat.
+    xlikp-tddat         = <fs_res>-tddat.
+
+    <fs_xkomdlgn>-matnr = <fs_res>-matnr.
+    <fs_xkomdlgn>-lfimg = <fs_res>-lfimg.
+    <fs_xkomdlgn>-vrkme = <fs_res>-vrkme.
+    <fs_xkomdlgn>-meins = <fs_res>-vrkme.
+    <fs_xkomdlgn>-vgbel = <fs_res>-ebeln.
+    <fs_xkomdlgn>-vgpos = <fs_res>-ebelp.
+    <fs_xkomdlgn>-lichn = <fs_res>-lichn.
+    CALL FUNCTION 'ME_CONFIRMATION_VIA_EDI'
+      TABLES
+        t_kom  = xkomdlgn
+        errors = lt_prop
+      EXCEPTIONS
+        OTHERS = 1.
+    IF sy-subrc NE 0.
+      lv_err = 'X'.
+      <fs_res>-icon    = icon-error.
+      <fs_res>-message = 'PO/SA doesn`t exist'.
+    ENDIF.
+
+    LOOP AT xkomdlgn ASSIGNING <fs_xkomdlgn>.
+*     set default parameter
+      <fs_xkomdlgn>-vgtyp = 'V'.
+      <fs_xkomdlgn>-kzazu = 'X'.
+      <fs_xkomdlgn>-lfart = 'EL'.
+    ENDLOOP.
+
+    PERFORM get_vbsk CHANGING xvbsk lv_err lt_return.
+
+    CALL FUNCTION 'ZFM_MM_C030_TDDAT_SET'
+      EXPORTING
+        is_likp = xlikp.
+
+    IF lv_err IS INITIAL.
+      CALL FUNCTION 'GN_DELIVERY_CREATE'
+        EXPORTING
+          vbsk_i    = xvbsk
+          no_commit = 'X'
+        IMPORTING
+          vbsk_e    = xvbsk
+        TABLES
+          xkomdlgn  = xkomdlgn
+          xvbfs     = xvbfs
+          xvbls     = xvbls
+*         xxlips    = xlips
+        EXCEPTIONS
+          OTHERS    = 1.
+
+      LOOP AT xvbfs INTO DATA(ls_xvbfs) WHERE msgty = 'E' OR msgty = 'A' OR msgty = 'X'.
+        EXIT.
+      ENDLOOP.
+
+      IF sy-subrc = 0.
+        lv_err = 'X'.
+        CALL FUNCTION 'BAPI_TRANSACTION_ROLLBACK'.
+        MESSAGE ID ls_xvbfs-msgid TYPE ls_xvbfs-msgty NUMBER ls_xvbfs-msgno
+           WITH ls_xvbfs-msgv1 ls_xvbfs-msgv2 ls_xvbfs-msgv3 ls_xvbfs-msgv4
+           INTO <fs_res>-message.
+        <fs_res>-icon = icon-error.
+      ELSE.
+        READ TABLE xvbls INTO DATA(ls_xvbls) INDEX 1.
+        CALL FUNCTION 'BAPI_TRANSACTION_COMMIT'
+          EXPORTING
+            wait = 'X'.
+        <fs_res>-icon  = icon-success.
+        <fs_res>-ebeln = ls_xvbls-vbeln_lif.
+        <fs_res>-posnr = ls_xvbls-posnr_lif.
+      ENDIF.
+    ENDIF.
+
+    REFRESH: xkomdlgn, xvbfs, xvbls, xlips.
+    CLEAR: xvbsk, lv_err, lv_rfpos, xlikp.
+  ENDLOOP.
+
+ENDFORM.

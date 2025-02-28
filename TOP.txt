@@ -1,0 +1,76 @@
+*&---------------------------------------------------------------------*
+*& Include          ZPG_MM_C030N_TOP
+*&---------------------------------------------------------------------*
+*---------------------------------------------------------------------*
+*        Constants                                                    *
+*---------------------------------------------------------------------*
+CONSTANTS:
+  BEGIN OF icon,
+    error   TYPE char10 VALUE '@5C@',
+    warning TYPE char10 VALUE '@5D@',
+    success TYPE char10 VALUE '@5B@',
+    END OF icon.
+
+*---------------------------------------------------------------------*
+*        Global TYPE                                                  *
+*---------------------------------------------------------------------*
+TYPES:
+  BEGIN OF gty_res,
+    sel     TYPE char1,
+    vbeln   TYPE lips-vbeln,
+    posnr   TYPE lips-posnr,
+    ebeln   TYPE ekpo-ebeln,
+    ebelp   TYPE ekpo-ebelp,
+    lfdat   TYPE likp-lfdat,
+    lifex   TYPE likp-lifex,
+    lfimg   TYPE lips-lfimg,
+    vrkme   TYPE lips-vrkme,
+    tddat   TYPE likp-tddat,
+    lichn   TYPE lips-lichn,
+    matnr   TYPE matnr,
+    txz01   TYPE txz01,
+    icon    TYPE icon_d,
+    message TYPE char255,
+    END OF gty_res.
+
+TYPES:
+  BEGIN OF gty_lips.
+    INCLUDE TYPE lips.
+TYPES:
+    lfdat   TYPE likp-lfdat,
+    tddat   TYPE likp-tddat,
+    lifex   TYPE likp-lifex,
+    autlf   TYPE likp-autlf,
+    END OF gty_lips.
+
+TYPES:  gty_t_res   TYPE TABLE OF gty_res.
+TYPES:  gty_t_lips  TYPE TABLE OF gty_lips.
+
+*---------------------------------------------------------------------*
+*        Table                                                        *
+*---------------------------------------------------------------------*
+TABLES: sscrfields.
+*---------------------------------------------------------------------*
+*        Global DATA                                                  *
+*---------------------------------------------------------------------*
+DATA: gv_init     TYPE flag,
+      gv_err      TYPE flag,
+      gs_functxt  TYPE smp_dyntxt.
+
+DATA: gt_fcat     TYPE lvc_t_fcat,
+      gt_res      TYPE gty_t_res.
+
+*---------------------------------------------------------------------*
+* S E L E C T I O N - S C R E N                                       *
+*---------------------------------------------------------------------*
+SELECTION-SCREEN BEGIN OF BLOCK bl_01 WITH FRAME TITLE TEXT-001.
+  PARAMETERS: p_opt  TYPE num02 AS LISTBOX VISIBLE LENGTH 50
+                                OBLIGATORY
+                                DEFAULT 01
+                                USER-COMMAND func.
+
+  PARAMETERS: p_file TYPE string MODIF ID gr1.
+
+SELECTION-SCREEN END OF BLOCK bl_01.
+SELECTION-SCREEN: FUNCTION KEY 1.
+SELECTION-SCREEN: FUNCTION KEY 2.
